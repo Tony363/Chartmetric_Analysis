@@ -257,7 +257,106 @@ def plot_confusion_matrix(cm, ax, classes,
     ax.set_ylabel('True',fontsize=font_size)
     ax.set_xlabel('Predicted',fontsize=font_size)
 
+# Create a basic logistic regression
+def basic_logistic_regression(df, cutoff=55, rand=0, sig_only=False):
+    df = df.copy()
+
+    if sig_only == True:
+        X, y = return_X_y_logistic_sig_only(split_sample_combine(df, cutoff=cutoff, rand=rand))
+        X = standardize_X_sig_only(X)
+
+    else:
+        X, y = return_X_y_logistic(split_sample_combine(df, cutoff=80, rand=rand))
+        X = standardize_X(X)
+
+    X_const = add_constant(X, prepend=True)
+
+    logit_model = Logit(y, X_const).fit()
+    
+    print(logit_model.summary())
+
+    return logit_model
+
+# various data standardization and X/y split functions for logisitic reression
+# based on the columns you want to standardize and return
+def return_X_y_logistic(df):
+    df = df.copy()
+
+    # define columns to use for each
+    X_cols = df.columns
+
+    # use 1's and 0's for logistic
+    y_col = df.columns[0]
+
+    # split into X and y
+    X = df[X_cols]
+    y = df[y_col]
+
+    return X, y
+
+def logistic_regression_with_kfold(df, cutoff=55, rand=0, sig_only=False):
+    df = df.copy()
+    
+    if sig_only == True:
+        X, y = return_X_y_logistic_sig_only(split_sample_combine(df, cutoff=cutoff, rand=rand))
+        X = standardize_X_sig_only(X)
+
+    else:
+        X, y = return_X_y_logistic(split_sample_combine(df, cutoff=cutoff, rand=rand))
+        X = standardize_X(X)
+
+    X = X.values
+    y = y.values.ravel()
+
+    classifier = LogisticRegression()
+
+    # before kFold
+    y_predict = classifier.fit(X, y).predict(X)
+    y_true = y
+    accuracy_score(y_true, y_predict)
+    print(f"accuracy: {accuracy_score(y_true, y_predict)}")
+    print(f"precision: {precision_score(y_true, y_predict)}")
+    print(f"recall: {recall_score(y_true, y_predict)}")
+    print(f"The coefs are: {classifier.fit(X,y).coef_}")
+
+    # with kfold
+    kfold = KFold(len(y))
+
+    accuracies = []
+    precisions = []
+    recalls = []
+
+    for train_index, test_index in kfold:
+        model = LogisticRegression()
+        model.fit(X[train_index], y[train_index])
+
+        y_predict = model.predict(X[test_index])
+        y_true = y[test_index]
+
+        accuracies.append(accuracy_score(y_true, y_predict))
+        precisions.append(precision_score(y_true, y_predict))
+        recalls.append(recall_score(y_true, y_predict))
+
+    print(f"accuracy: {np.average(accuracies)}")
+    print(f"precision: {np.average(precisions)}")
+    print(f"recall: {np.average(recalls)}")
+
 if __name__ == "__main__":
+  """
+  forcasting followers and listeners over 6 month regression
+  model around followers and listeners
+  cut off followers lower than 10000
+  cut off listeners 100000
+  popularity cut off 40
+
+  *create new metric(artist score) off of populurity,followers, listeners <- these 3 variables
+  homepage and dashboard(UI)
+  step 1 <- visual representation of what the platform looks like (basic sustainable platform)
+    - barebones UI
+    - with plot metrics
+
+  (proof of concept first)<-small easy project easy money
+  """
     df = load_data()  
     set_view_options(max_cols=50, max_rows=50, max_colwidth=40, dis_width=250)
     duplicated = True in df.columns.duplicated()
@@ -279,11 +378,11 @@ if __name__ == "__main__":
     train_cols = np.unique(np.asarray([au_corr.index])[0].flatten())
     dtrain = df[train_cols]
     dtrain.fillna(dtrain.mean(),inplace=True)
+    plot_heatmap(dtrain)
     
     # regression
     linear_regression_initial(dtrain)
-
-    plot_heatmap(dtrain)
+    # basic_logistic_regression(dtrain)
     
     
     
