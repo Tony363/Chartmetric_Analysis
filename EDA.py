@@ -48,6 +48,8 @@ def rename_columns(df):
     return df
 
 def get_df_info(df):
+    # print memory usage
+    print(df.memory_usage(),'\n')
     # take an initial look at our data
     print(df.head(),'\n')
 
@@ -80,7 +82,19 @@ def get_df_info(df):
     statsdf.set_index([pd.Index(subject_col)],inplace=True)
     return statsdf,df.info()
     # print(df.agg({col:['min','max','median','skew'] for idx,col in enumerate(df.columns) if idx % 7 != 0}))
-    
+
+# calculate and print more stats from the df
+def get_stats(df):
+    # print stats for various metrics
+    print(f"There are {df.shape[0]} rows")
+    print(f"There are {df['track_id'].unique().shape} unique songs")
+    print(f"There are {df['artist_name'].unique().shape} unique artists")
+    print(f"There are {df['popularity'].unique().shape} popularity scores")
+    print(f"The mean popularity score is {df['popularity'].mean()}")
+    print(f"There are {df[df['popularity'] > 55]['popularity'].count()} songs with a popularity score > 55")
+    print(f"There are {df[df['popularity'] > 75]['popularity'].count()} songs with a popularity score > 75")
+    print(f"Only {(df[df['popularity'] > 80]['popularity'].count() / df.shape[0])*100:.2f} % of songs have a popularity score > 80")
+
 def calc_correlations(df, cutoff=0.5):
     corr = df.corr()
     corr_data = corr[corr > cutoff]
@@ -171,6 +185,78 @@ def linear_regression_initial(df):
         plt.title(f"{col} regression")
         plt.show()
 
+# plot univariate dists for several independent variables
+def plot_univ_dists(df, cutoff):
+    popularity_cutoff = cutoff
+    print('Mean value for Danceability feature for Popular songs: {}'.format(df[df['popularity'] > popularity_cutoff]['danceability'].mean()))
+    print('Mean value for Danceability feature for Unpopular songs: {}'.format(df[df['popularity'] < popularity_cutoff]['danceability'].mean()))
+    
+    fig, ax = plt.subplots(1, 1, figsize=(8,5))
+    fig.suptitle('Histograms and Univariate Distributions of Important Features')
+    sns.distplot(df[df['popularity'] < popularity_cutoff]['danceability'])
+    sns.distplot(df[df['popularity'] > popularity_cutoff]['danceability'])
+    plt.show()
+
+    fig, ax = plt.subplots(1, 1, figsize=(8,5))
+    sns.distplot(df[df['popularity'] < popularity_cutoff]['valence'])
+    sns.distplot(df[df['popularity'] > popularity_cutoff]['valence'])
+    plt.show()
+
+    fig, ax = plt.subplots(1, 1, figsize=(8,5))
+    sns.distplot(df[df['popularity'] < popularity_cutoff]['acousticness'])
+    sns.distplot(df[df['popularity'] > popularity_cutoff]['acousticness'])
+    plt.show()
+
+# plot a heatmap of the correlations between features as well as dependent variable
+def plot_heatmap(df):
+    # note this looks better in jupyter as well
+    plt.figure(figsize = (16,6))
+    sns.heatmap(df.corr(), cmap="coolwarm", annot=True, )
+    plt.show()
+  
+# plot a confusion matrix
+def plot_confusion_matrix(cm, ax, classes,
+                          normalize=False,
+                          title='Confusion matrix',
+                          cmap=plt.cm.Greens):
+    """
+    This function prints and plots the confusion matrix.
+    """
+    font_size = 24
+    p = ax.imshow(cm, interpolation='nearest', cmap=cmap)
+    ax.set_title(title,fontsize=font_size)
+    
+    tick_marks = np.arange(len(classes))
+    ax.set_xticks(tick_marks)
+    ax.set_xticklabels(classes, rotation=45, fontsize=16)
+    ax.set_yticks(tick_marks)
+    ax.set_yticklabels(classes, fontsize=16)
+   
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+
+    print(cm)
+
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        if i == 1 and j == 1:
+            lbl = "(True Positive)"
+        elif i == 0 and j == 0:
+            lbl = "(True Negative)"
+        elif i == 1 and j == 0:
+            lbl = "(False Negative)"
+        elif i == 0 and j == 1:
+            lbl = "(False Positive)"
+        ax.text(j, i, "{:0.2f} \n{}".format(cm[i, j], lbl),
+                 horizontalalignment="center", size = font_size,
+                 color="white" if cm[i, j] > thresh else "black")
+    plt.tight_layout()
+    ax.set_ylabel('True',fontsize=font_size)
+    ax.set_xlabel('Predicted',fontsize=font_size)
+
 if __name__ == "__main__":
     df = load_data()  
     set_view_options(max_cols=50, max_rows=50, max_colwidth=40, dis_width=250)
@@ -196,6 +282,9 @@ if __name__ == "__main__":
     
     # regression
     linear_regression_initial(dtrain)
+
+    plot_heatmap(dtrain)
+    
     
     
     
