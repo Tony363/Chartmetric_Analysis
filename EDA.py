@@ -85,15 +85,16 @@ def get_df_info(df):
 
 # calculate and print more stats from the df
 def get_stats(df):
+    df.reset_index(inplace=True)
     # print stats for various metrics
+    print()
     print(f"There are {df.shape[0]} rows")
-    print(f"There are {df['track_id'].unique().shape} unique songs")
-    print(f"There are {df['artist_name'].unique().shape} unique artists")
-    print(f"There are {df['popularity'].unique().shape} popularity scores")
-    print(f"The mean popularity score is {df['popularity'].mean()}")
-    print(f"There are {df[df['popularity'] > 55]['popularity'].count()} songs with a popularity score > 55")
-    print(f"There are {df[df['popularity'] > 75]['popularity'].count()} songs with a popularity score > 75")
-    print(f"Only {(df[df['popularity'] > 80]['popularity'].count() / df.shape[0])*100:.2f} % of songs have a popularity score > 80")
+    print(f"There are {df['Chartmetric_ID'].unique().shape} unique artists")
+    print(f"There are {df['popularity value.1'].unique().shape} unique popularity scores")
+    print(f"The mean popularity score is {df['popularity value.1'].mean()}")
+    print(f"There are {df[df['popularity value.1'] > 55]['popularity value.1'].count()} songs with a popularity score > 55")
+    print(f"There are {df[df['popularity value.1'] > 75]['popularity value.1'].count()} songs with a popularity score > 75")
+    print(f"Only {(df[df['popularity value.1'] > 80]['popularity value.1'].count() / df.shape[0])*100:.2f} % of artists have a popularity score > 80")
 
 def calc_correlations(df, cutoff=0.5):
     corr = df.corr()
@@ -256,7 +257,84 @@ def plot_confusion_matrix(cm, ax, classes,
     plt.tight_layout()
     ax.set_ylabel('True',fontsize=font_size)
     ax.set_xlabel('Predicted',fontsize=font_size)
+    
+# plot polularity scores distribution
+def plot_pop_dist(df):
+    # set palette
+    sns.set_palette('muted')
 
+    # create initial figure
+    fig = plt.figure(figsize=(8,5))
+    ax = fig.add_subplot(111)
+    sns.distplot(df['popularity value.1']/100, color='g', label="Popularity").set_title("Distribution of Popularity Scores - Entire Data Set")
+
+    # create x and y axis labels
+    plt.xlabel("Popularity")
+    plt.ylabel("Density")
+
+    plt.show()
+
+# plot undersampling methodology
+def undersample_plot(df):
+    # set palette
+    sns.set_palette('muted')
+
+    # create initial figure
+    fig = plt.figure(figsize=(8,5))
+    ax = fig.add_subplot(111)
+    sns.distplot(df['popularity value.1']/100, color='g', label="Popularity").set_title("Illustration of Undersampling from Data Set")
+    
+    # create line to shade to the right of
+    line = ax.get_lines()[-1]
+    x_line, y_line = line.get_data()
+    mask = x_line > 0.55
+    x_line, y_line = x_line[mask], y_line[mask]
+    ax.fill_between(x_line, y1=y_line, alpha=0.5, facecolor='red')
+
+    # get values for and plot first label
+    label_x = 0.5
+    label_y = 4
+    arrow_x = 0.6
+    arrow_y = 0.2
+
+    arrow_properties = dict(
+        facecolor="black", width=2,
+        headwidth=4,connectionstyle='arc3,rad=0')
+
+    plt.annotate(
+        "First, sample all songs in this range.\n Sample size is n. Cutoff is 0.5.", xy=(arrow_x, arrow_y),
+        xytext=(label_x, label_y),
+        bbox=dict(boxstyle='round,pad=0.5', fc='red', alpha=0.5),
+        arrowprops=arrow_properties)
+
+    # Get values for and plot second label
+    label_x = 0.1
+    label_y = 3
+    arrow_x = 0.2
+    arrow_y = 0.2
+
+    arrow_properties = dict(
+        facecolor="black", width=2,
+        headwidth=4,connectionstyle='arc3,rad=0')
+
+    plt.annotate(
+        "Next, randomly sample \n n songs in this range", xy=(arrow_x, arrow_y),
+        xytext=(label_x, label_y),
+        bbox=dict(boxstyle='round,pad=0.5', fc='g', alpha=0.5),
+        arrowprops=arrow_properties)
+
+    # plot final word box
+    plt.annotate(
+        "Therefore, end up with a 50/50 \n split of Popular / Not Popular\n songs", xy=(0.6, 2),
+        xytext=(0.62, 2),
+        bbox=dict(boxstyle='round,pad=0.5', fc='b', alpha=0.5))
+
+    # create x and y axis labels
+    plt.xlabel("Popularity")
+    plt.ylabel("Density")
+
+    plt.show()
+    
 # Create a basic logistic regression
 def basic_logistic_regression(df, cutoff=55, rand=0, sig_only=False):
     df = df.copy()
@@ -344,8 +422,7 @@ def logistic_regression_with_kfold(df, cutoff=55, rand=0, sig_only=False):
 def group_time(df):
     timeidx = [df.columns.get_loc(col) for col in df.columns if "timestp" in col] 
     time = df.iloc[:,timeidx]
-    print(timeidx)
-    df = df.drop(df.columns[timeidx[1:]],axis=1).reset_index().groupby(['followers timestp','Chartmetric_ID']).first()
+    df = df.drop(df.columns[timeidx[:]],axis=1).reset_index().groupby(['Chartmetric_ID','followers','listeners','popularity','followers_to_listeners_ratio']).first()
     return df
     
 if __name__ == "__main__":
@@ -367,30 +444,37 @@ if __name__ == "__main__":
     - diff var / value
     - pair xy regressor    
     """
-        # data clean
+    # data clean
     df = load_data()  
     set_view_options(max_cols=50, max_rows=50, max_colwidth=40, dis_width=250)
     duplicated = True in df.columns.duplicated()
-    print(f"duplicate columns: {duplicated}")
+    print(f"duplicate columns: {duplicated}\n")
     df = rename_columns(df)
-    df = group_time(df)
+    df.fillna(df.mean(),inplace=True)
+    grouped = group_time(df)
     
-   # prelim insights
-    statsdf,info = get_df_info(df)
+    # prelim insights
+    statsdf,info = get_df_info(grouped)
+    get_stats(df)
     print()
-    corr_list,corr_data = calc_correlations(df)
+    corr_list,corr_data = calc_correlations(grouped)
     plot_index = corr_list[corr_list > 0.5].index
     for plot in plot_index:
         scatter_plot(df,plot[0],plot[1])
     describe = describe_cols(df,10)
     print()
+    plot_heatmap(df)
+    plot_pop_dist(df)
+    undersample_plot(df)
     
-   # Data prep
-    au_corr = get_top_abs_correlations(df, 10)
+    # Data prep
+    au_corr = get_top_abs_correlations(grouped, 25)
     train_cols = np.unique(np.asarray([au_corr.index])[0].flatten())
-    dtrain = df[train_cols]
+    dtrain = grouped[train_cols]
     dtrain.fillna(dtrain.mean(),inplace=True)
     plot_heatmap(dtrain)
+    plot_pop_dist(dtrain)
+    undersample_plot(dtrain)
     
     # regression
     linear_regression_initial(dtrain)
