@@ -38,7 +38,7 @@ def set_view_options(max_cols=50, max_rows=50, max_colwidth=9, dis_width=250):
     pd.options.display.max_rows = max_rows
     pd.set_option('max_colwidth', max_colwidth)
     pd.options.display.width = dis_width
-
+    
 def rename_columns(df):
     subidx = [df.columns.get_loc(col) for col in df.columns if "Subject" in col] 
     subjects = df.columns[[subidx]]
@@ -47,26 +47,20 @@ def rename_columns(df):
         df.rename(columns={sub:df.columns[subidx[subject]]+" "+sub for idx,sub in enumerate(df.columns[idx+1:idx+7])},inplace=True)
     return df
 
-def group_time(df):
-    timeidx = [df.columns.get_loc(col) for col in df.columns if "timestp" in col] 
-    time = df.iloc[:,timeidx]
-    df = df.reset_index().groupby(['followers timestp']).first()
-    print(df)
-
 def get_df_info(df):
     # print memory usage
     print(df.memory_usage(),'\n')
     # take an initial look at our data
     print(df.head(),'\n')
-    
+
     # take a look at the columns in our data set
     print("The columns are:")
     print(df.columns,'\n')
-    
+
     # look at data types for each
     info = df.info()
     print(info,'\n')
-    
+
     # take a look at data types, and it looks like we have a pretty clean data set!
     # However, I think the 0 popularity scores might throw the model(s) off a bit.
     print("Do we have any nulls?")
@@ -202,12 +196,12 @@ def plot_univ_dists(df, cutoff):
     sns.distplot(df[df['popularity'] < popularity_cutoff]['danceability'])
     sns.distplot(df[df['popularity'] > popularity_cutoff]['danceability'])
     plt.show()
-    
+
     fig, ax = plt.subplots(1, 1, figsize=(8,5))
     sns.distplot(df[df['popularity'] < popularity_cutoff]['valence'])
     sns.distplot(df[df['popularity'] > popularity_cutoff]['valence'])
     plt.show()
-    
+
     fig, ax = plt.subplots(1, 1, figsize=(8,5))
     sns.distplot(df[df['popularity'] < popularity_cutoff]['acousticness'])
     sns.distplot(df[df['popularity'] > popularity_cutoff]['acousticness'])
@@ -237,15 +231,15 @@ def plot_confusion_matrix(cm, ax, classes,
     ax.set_xticklabels(classes, rotation=45, fontsize=16)
     ax.set_yticks(tick_marks)
     ax.set_yticklabels(classes, fontsize=16)
-       
+   
     if normalize:
         cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
         print("Normalized confusion matrix")
     else:
         print('Confusion matrix, without normalization')
-    
+
     print(cm)
-    
+
     thresh = cm.max() / 2.
     for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
         if i == 1 and j == 1:
@@ -266,38 +260,38 @@ def plot_confusion_matrix(cm, ax, classes,
 # Create a basic logistic regression
 def basic_logistic_regression(df, cutoff=55, rand=0, sig_only=False):
     df = df.copy()
-    
+
     if sig_only == True:
         X, y = return_X_y_logistic_sig_only(split_sample_combine(df, cutoff=cutoff, rand=rand))
         X = standardize_X_sig_only(X)
-    
+
     else:
         X, y = return_X_y_logistic(split_sample_combine(df, cutoff=80, rand=rand))
         X = standardize_X(X)
-    
+
     X_const = add_constant(X, prepend=True)
-    
+
     logit_model = Logit(y, X_const).fit()
     
     print(logit_model.summary())
-    
+
     return logit_model
 
 # various data standardization and X/y split functions for logisitic reression
 # based on the columns you want to standardize and return
 def return_X_y_logistic(df):
     df = df.copy()
-    
+
     # define columns to use for each
     X_cols = df.columns
-    
+
     # use 1's and 0's for logistic
     y_col = df.columns[0]
-    
+
     # split into X and y
     X = df[X_cols]
     y = df[y_col]
-    
+
     return X, y
 
 def logistic_regression_with_kfold(df, cutoff=55, rand=0, sig_only=False):
@@ -306,16 +300,16 @@ def logistic_regression_with_kfold(df, cutoff=55, rand=0, sig_only=False):
     if sig_only == True:
         X, y = return_X_y_logistic_sig_only(split_sample_combine(df, cutoff=cutoff, rand=rand))
         X = standardize_X_sig_only(X)
-    
+
     else:
         X, y = return_X_y_logistic(split_sample_combine(df, cutoff=cutoff, rand=rand))
         X = standardize_X(X)
-    
+
     X = X.values
     y = y.values.ravel()
-    
+
     classifier = LogisticRegression()
-    
+
     # before kFold
     y_predict = classifier.fit(X, y).predict(X)
     y_true = y
@@ -324,54 +318,64 @@ def logistic_regression_with_kfold(df, cutoff=55, rand=0, sig_only=False):
     print(f"precision: {precision_score(y_true, y_predict)}")
     print(f"recall: {recall_score(y_true, y_predict)}")
     print(f"The coefs are: {classifier.fit(X,y).coef_}")
-    
+
     # with kfold
     kfold = KFold(len(y))
-    
+
     accuracies = []
     precisions = []
     recalls = []
-    
+
     for train_index, test_index in kfold:
         model = LogisticRegression()
         model.fit(X[train_index], y[train_index])
-    
+
         y_predict = model.predict(X[test_index])
         y_true = y[test_index]
-    
+
         accuracies.append(accuracy_score(y_true, y_predict))
         precisions.append(precision_score(y_true, y_predict))
         recalls.append(recall_score(y_true, y_predict))
-    
+
     print(f"accuracy: {np.average(accuracies)}")
     print(f"precision: {np.average(precisions)}")
     print(f"recall: {np.average(recalls)}")
+
+def group_time(df):
+    timeidx = [df.columns.get_loc(col) for col in df.columns if "timestp" in col] 
+    time = df.iloc[:,timeidx]
+    print(timeidx)
+    df = df.drop(df.columns[timeidx[1:]],axis=1).reset_index().groupby(['followers timestp','Chartmetric_ID']).first()
+    return df
     
 if __name__ == "__main__":
     """
     forcasting followers and listeners over 6 month regression
-      model around followers and listeners
-      cut off followers lower than 10000
-      cut off listeners 100000
-      popularity cut off 40
+    model around followers and listeners
+    cut off followers lower than 10000
+    cut off listeners 100000
+    popularity cut off 40
     
-      *create new metric(artist score) off of populurity,followers, listeners <- these 3 variables
-      homepage and dashboard(UI)
-      step 1 <- visual representation of what the platform looks like (basic sustainable platform)
-    - barebones UI
-    - with plot metrics
-    
+    *create new metric(artist score) off of populurity,followers, listeners <- these 3 variables
+    homepage and dashboard(UI)
+    step 1 <- visual representation of what the platform looks like (basic sustainable platform)
+      - barebones UI
+      - with plot metrics
+    -heursticals timeseries giving it a weights average and aggregate
       (proof of concept first)<-small easy project easy money
-    groupby timeseries for each artist metric for feature engineering.
+    -only use first row of each artist because lack of prevalence
+    - diff var / value
+    - pair xy regressor    
     """
+        # data clean
     df = load_data()  
     set_view_options(max_cols=50, max_rows=50, max_colwidth=40, dis_width=250)
     duplicated = True in df.columns.duplicated()
     print(f"duplicate columns: {duplicated}")
-    df,timeidx = rename_columns(df)
-    group_time(df)
+    df = rename_columns(df)
+    df = group_time(df)
     
-    # prelim insights
+   # prelim insights
     statsdf,info = get_df_info(df)
     print()
     corr_list,corr_data = calc_correlations(df)
@@ -380,9 +384,9 @@ if __name__ == "__main__":
         scatter_plot(df,plot[0],plot[1])
     describe = describe_cols(df,10)
     print()
-    au_corr = get_top_abs_correlations(df, 10)
     
-    # data prep
+   # Data prep
+    au_corr = get_top_abs_correlations(df, 10)
     train_cols = np.unique(np.asarray([au_corr.index])[0].flatten())
     dtrain = df[train_cols]
     dtrain.fillna(dtrain.mean(),inplace=True)
