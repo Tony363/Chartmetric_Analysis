@@ -16,6 +16,7 @@ import random
 from pandas.plotting import scatter_matrix
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split,KFold
+from sklearn.preprocessing import MaxAbsScaler,MinMaxScaler,StandardScaler,RobustScaler
 from scipy import stats  
 from statsmodels.discrete.discrete_model import Logit
 from statsmodels.tools import add_constant
@@ -80,7 +81,7 @@ def get_df_info(df):
                 continue
     statsdf = pd.concat(statsdf,axis=0,ignore_index=True)
     statsdf.set_index([pd.Index(subject_col)],inplace=True)
-    return statsdf,df.info()
+    return statsdf
     # print(df.agg({col:['min','max','median','skew'] for idx,col in enumerate(df.columns) if idx % 7 != 0}))
 
 # calculate and print more stats from the df
@@ -95,6 +96,20 @@ def get_stats(df):
     print(f"There are {df[df['popularity value.1'] > 55]['popularity value.1'].count()} songs with a popularity score > 55")
     print(f"There are {df[df['popularity value.1'] > 75]['popularity value.1'].count()} songs with a popularity score > 75")
     print(f"Only {(df[df['popularity value.1'] > 80]['popularity value.1'].count() / df.shape[0])*100:.2f} % of artists have a popularity score > 80")
+    
+def group_time(df):
+    timeidx = [df.columns.get_loc(col) for col in df.columns if "timestp" in col] 
+    time = df.iloc[:,timeidx]
+    df = df.drop(df.columns[timeidx[1:]],axis=1).reset_index().groupby(['followers timestp'])[['Chartmetric_ID','followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3']].first()
+    df.fillna(df.mean(),inplace=True)
+    df['df followers'] = df['followers value'].pct_change()
+    df['df popularity'] = df['popularity value.1'].pct_change()
+    df['df listeners'] = df['listeners value.2'].pct_change()
+    df['df ratio'] = df['followers_to_listeners_ratio value.3'].pct_change()
+    df_std = StandardScaler().fit_transform(df[])
+    df_norm = MinMaxScaler().fit_transform(df)
+    df_std_norm = MinMaxScaler().fit_transform(df_std)
+    return df,df_std,df_norm,df_std_norm
 
 def calc_correlations(df, cutoff=0.5):
     corr = df.corr()
@@ -146,66 +161,6 @@ def scatter_plot(df, col_x, col_y):
 
 def plot_scatter_matrix(df, num_rows):
     scatter_matrix(df[:num_rows], alpha=0.2, figsize=(6, 6), diagonal='kde')
-    plt.show()
-
-# initial linear regression function, and plots
-def linear_regression_initial(df):
-    df = df.copy()
-    for col in df.columns:
-        X_cols = df.columns.drop(col)
-    
-        y_col = [col]
-    
-        X = df[X_cols]
-        y = df[y_col]
-    
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25)
-    
-        X_train = sm.add_constant(X_train)
-    
-        # Instantiate OLS model, fit, predict, get errors
-        model = sm.OLS(y_train, X_train)
-        results = model.fit()
-        fitted_vals = results.predict(X_train)
-        stu_resid = results.resid_pearson
-        residuals = results.resid
-        y_vals = pd.DataFrame({'residuals':residuals, 'fitted_vals':fitted_vals, \
-                               'stu_resid': stu_resid})
-    
-        # Print the results
-        print(results.summary())
-    
-        # QQ Plot
-        fig, ax = plt.subplots(figsize=(8, 5))
-        plt.title(f"QQ Plot-{col} Initial Linear Regression")
-        fig = sm.qqplot(stu_resid, line='45', fit=True, ax=ax)
-        plt.show()
-    
-        # Residuals Plot
-        y_vals.plot(kind='scatter', x='fitted_vals', y='stu_resid')
-        plt.title(f"{col} regression")
-        plt.show()
-
-# plot univariate dists for several independent variables
-def plot_univ_dists(df, cutoff):
-    popularity_cutoff = cutoff
-    print('Mean value for Danceability feature for Popular songs: {}'.format(df[df['popularity'] > popularity_cutoff]['danceability'].mean()))
-    print('Mean value for Danceability feature for Unpopular songs: {}'.format(df[df['popularity'] < popularity_cutoff]['danceability'].mean()))
-    
-    fig, ax = plt.subplots(1, 1, figsize=(8,5))
-    fig.suptitle('Histograms and Univariate Distributions of Important Features')
-    sns.distplot(df[df['popularity'] < popularity_cutoff]['danceability'])
-    sns.distplot(df[df['popularity'] > popularity_cutoff]['danceability'])
-    plt.show()
-
-    fig, ax = plt.subplots(1, 1, figsize=(8,5))
-    sns.distplot(df[df['popularity'] < popularity_cutoff]['valence'])
-    sns.distplot(df[df['popularity'] > popularity_cutoff]['valence'])
-    plt.show()
-
-    fig, ax = plt.subplots(1, 1, figsize=(8,5))
-    sns.distplot(df[df['popularity'] < popularity_cutoff]['acousticness'])
-    sns.distplot(df[df['popularity'] > popularity_cutoff]['acousticness'])
     plt.show()
 
 # plot a heatmap of the correlations between features as well as dependent variable
@@ -334,7 +289,65 @@ def undersample_plot(df):
     plt.ylabel("Density")
 
     plt.show()
+
+# plot univariate dists for several independent variables
+def plot_univ_dists(df, cutoff):
+    popularity_cutoff = cutoff
+    print('Mean value for followers feature for Popular artists: {}'.format(df[df['popularity value.1'] > popularity_cutoff]['followers value'].mean()))
+    print('Mean value for followers feature for Unpopular artists: {}'.format(df[df['popularity value.1'] < popularity_cutoff]['followers value'].mean()))
+    print('Mean value for listeners feature for Popular artists: {}'.format(df[df['popularity value.1'] > popularity_cutoff]['listeners value.2'].mean()))
+    print('Mean value for listeners feature for Unpopular artists: {}'.format(df[df['popularity value.1'] < popularity_cutoff]['listeners value.2'].mean()))
+  
     
+    fig, ax = plt.subplots(1, 1, figsize=(8,5))
+    fig.suptitle('Histograms and Univariate Distributions of Important Features')
+    sns.distplot(df[df['popularity value.1'] < popularity_cutoff]['followers value'])
+    sns.distplot(df[df['popularity value.1'] > popularity_cutoff]['followers value'])
+    plt.show()
+
+    fig, ax = plt.subplots(1, 1, figsize=(8,5))
+    sns.distplot(df[df['popularity value.1'] < popularity_cutoff]['listeners value.2'])
+    sns.distplot(df[df['popularity value.1'] > popularity_cutoff]['listeners value.2'])
+    plt.show()
+    
+# initial linear regression function, and plots
+def linear_regression_initial(df):
+    df = df.copy()
+    for col in df.columns:
+        X_cols = df.columns.drop(col)
+    
+        y_col = [col]
+    
+        X = df[X_cols]
+        y = df[y_col]
+    
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25)
+    
+        X_train = sm.add_constant(X_train)
+    
+        # Instantiate OLS model, fit, predict, get errors
+        model = sm.OLS(y_train, X_train)
+        results = model.fit()
+        fitted_vals = results.predict(X_train)
+        stu_resid = results.resid_pearson
+        residuals = results.resid
+        y_vals = pd.DataFrame({'residuals':residuals, 'fitted_vals':fitted_vals, \
+                               'stu_resid': stu_resid})
+    
+        # Print the results
+        print(results.summary())
+    
+        # QQ Plot
+        fig, ax = plt.subplots(figsize=(8, 5))
+        plt.title(f"QQ Plot-{col} Initial Linear Regression")
+        fig = sm.qqplot(stu_resid, line='45', fit=True, ax=ax)
+        plt.show()
+    
+        # Residuals Plot
+        y_vals.plot(kind='scatter', x='fitted_vals', y='stu_resid')
+        plt.title(f"{col} regression")
+        plt.show()
+        
 # Create a basic logistic regression
 def basic_logistic_regression(df, cutoff=55, rand=0, sig_only=False):
     df = df.copy()
@@ -419,11 +432,7 @@ def logistic_regression_with_kfold(df, cutoff=55, rand=0, sig_only=False):
     print(f"precision: {np.average(precisions)}")
     print(f"recall: {np.average(recalls)}")
 
-def group_time(df):
-    timeidx = [df.columns.get_loc(col) for col in df.columns if "timestp" in col] 
-    time = df.iloc[:,timeidx]
-    df = df.drop(df.columns[timeidx[:]],axis=1).reset_index().groupby(['Chartmetric_ID','followers','listeners','popularity','followers_to_listeners_ratio']).first()
-    return df
+
     
 if __name__ == "__main__":
     """
@@ -451,30 +460,35 @@ if __name__ == "__main__":
     print(f"duplicate columns: {duplicated}\n")
     df = rename_columns(df)
     df.fillna(df.mean(),inplace=True)
-    grouped = group_time(df)
+    grp,grp_std,grp_norm,grp_stdnorm = group_time(df)
     
     # prelim insights
-    statsdf,info = get_df_info(grouped)
-    get_stats(df)
+    statsgrp = get_df_info(grp)
+    # statsgrp_std = get_df_info(grp_std)
+    # statsgrp_norm = get_df_info(grp_norm)
+    # statsgrp_stdnorm = get_df_info(grp_stdnorm)
+    get_stats(grp)
     print()
-    corr_list,corr_data = calc_correlations(grouped)
+    corr_list,corr_data = calc_correlations(grp)
     plot_index = corr_list[corr_list > 0.5].index
     for plot in plot_index:
         scatter_plot(df,plot[0],plot[1])
     describe = describe_cols(df,10)
     print()
-    plot_heatmap(df)
-    plot_pop_dist(df)
-    undersample_plot(df)
+    plot_heatmap(grp)
+    plot_pop_dist(grp)
+    undersample_plot(grp)
+    plot_univ_dists(grp, 70)
     
     # Data prep
-    au_corr = get_top_abs_correlations(grouped, 25)
-    train_cols = np.unique(np.asarray([au_corr.index])[0].flatten())
-    dtrain = grouped[train_cols]
+    au_corr = get_top_abs_correlations(grp, 50)
+    train_cols = np.unique((np.asarray([(index[0],index[1]) for index in au_corr.index])).flatten())
+    dtrain = grp[train_cols]
     dtrain.fillna(dtrain.mean(),inplace=True)
     plot_heatmap(dtrain)
     plot_pop_dist(dtrain)
     undersample_plot(dtrain)
+    plot_univ_dists(dtrain, 70)
     
     # regression
     linear_regression_initial(dtrain)
