@@ -106,8 +106,8 @@ def group_time(df):
     df['df popularity'] = df['popularity value.1'].pct_change()
     df['df listeners'] = df['listeners value.2'].pct_change()
     df['df ratio'] = df['followers_to_listeners_ratio value.3'].pct_change()
-    df_std = StandardScaler().fit_transform(df[])
-    df_norm = MinMaxScaler().fit_transform(df)
+    df_std = StandardScaler().fit_transform(df.drop('Chartmetric_ID',axis=1))
+    df_norm = MinMaxScaler().fit_transform(df.drop('Chartmetric_ID',axis=1))
     df_std_norm = MinMaxScaler().fit_transform(df_std)
     return df,df_std,df_norm,df_std_norm
 
@@ -452,6 +452,10 @@ if __name__ == "__main__":
     -only use first row of each artist because lack of prevalence
     - diff var / value
     - pair xy regressor    
+    * engineered some features, standardized, made use of more relevant metrics for time series
+    * can incorporate other artist diff columns
+    * reference previous stock feature engineering project
+    * continue with logistic regression
     """
     # data clean
     df = load_data()  
@@ -472,8 +476,8 @@ if __name__ == "__main__":
     corr_list,corr_data = calc_correlations(grp)
     plot_index = corr_list[corr_list > 0.5].index
     for plot in plot_index:
-        scatter_plot(df,plot[0],plot[1])
-    describe = describe_cols(df,10)
+        scatter_plot(grp,plot[0],plot[1])
+    describe = describe_cols(grp,10)
     print()
     plot_heatmap(grp)
     plot_pop_dist(grp)
