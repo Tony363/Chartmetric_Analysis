@@ -11,6 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 import seaborn as sns
+import xgboost as xgb
 import random
 
 from pandas.plotting import scatter_matrix
@@ -100,17 +101,43 @@ def get_stats(df):
 def group_time(df):
     timeidx = [df.columns.get_loc(col) for col in df.columns if "timestp" in col] 
     time = df.iloc[:,timeidx]
-    df = df.drop(df.columns[timeidx[1:]],axis=1).reset_index().groupby(['followers timestp'])[['Chartmetric_ID','followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3']].first()
+    time = time.reset_index().drop('Chartmetric_ID',axis=1).loc[:,'followers timestp']
+    df = df.drop(df.columns[timeidx[1:]],axis=1).reset_index().groupby(['followers timestp',])[['Chartmetric_ID','followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3']].first()
     df.fillna(df.mean(),inplace=True)
-    df['df followers'] = df['followers value'].pct_change()
-    df['df popularity'] = df['popularity value.1'].pct_change()
-    df['df listeners'] = df['listeners value.2'].pct_change()
-    df['df ratio'] = df['followers_to_listeners_ratio value.3'].pct_change()
-    df_std = StandardScaler().fit_transform(df.drop('Chartmetric_ID',axis=1))
-    df_norm = MinMaxScaler().fit_transform(df.drop('Chartmetric_ID',axis=1))
-    df_std_norm = MinMaxScaler().fit_transform(df_std)
-    return df,df_std,df_norm,df_std_norm
+    print(df.describe())
+    df['fx followers'] = df['followers value'].pct_change()
+    df['fx popularity'] = df['popularity value.1'].pct_change()
+    df['fx listeners'] = df['listeners value.2'].pct_change()
+    df['fx ratio'] = df['followers_to_listeners_ratio value.3'].pct_change()
+    df_std = pd.DataFrame(StandardScaler().fit_transform(df.drop(['Chartmetric_ID','followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3'],axis=1)),columns=['fx followers','fx popularity','fx listeners','fx ratio'])
+    df_std['time series'] = time
+    df_std.set_index('time series',inplace=True)
+    df_norm = pd.DataFrame(MinMaxScaler().fit_transform(df.drop(['Chartmetric_ID','followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3'],axis=1)),columns=['fx followers','fx popularity','fx listeners','fx ratio'])
+    df_norm['time series'] = time
+    df_norm.set_index('time series',inplace=True)
+    df_std_norm = pd.DataFrame(MinMaxScaler().fit_transform(df_std),columns=['fx followers','fx popularity','fx listeners','fx ratio'])
+    return df.drop(['fx followers','fx popularity','fx listeners','fx ratio'],axis=1),df.drop(['Chartmetric_ID','followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3'],axis=1),df_std,df_norm,df_std_norm
 
+def artist_diff_metric(df):
+    timeidx = [df.columns.get_loc(col) for col in df.columns if "timestp" in col] 
+    valueidx = [df.columns.get_loc(col) for col in df.columns if "value" in col] 
+    df.drop(df.columns[timeidx+valueidx],axis=1,inplace=True)
+    df.reset_index(inplace=True)
+    artist_unique_row = [df.groupby('Chartmetric_ID').groups[artist][0] for artist in df.groupby('Chartmetric_ID').groups]
+    df = df.loc[artist_unique_row,:].drop(['followers','popularity','listeners'],axis=1).set_index('Chartmetric_ID')
+    return df
+
+def Multivariable_Matrix(df,original,col):
+    cmatrix = []
+    for shift,time in zip(range(df.shape[0]),df.index):
+        cseries = df.loc[:,col].shift(-shift)
+        smatrix = pd.DataFrame({f'shift {shift}':cseries.values})
+        cmatrix.append(smatrix)
+    cmatrix = pd.concat(cmatrix,axis=1)
+    cmatrix.drop(cmatrix.index[90:], inplace=True)
+    cmatrix.index = original.index[:cmatrix.shape[0]]
+    return cmatrix
+    
 def calc_correlations(df, cutoff=0.5):
     corr = df.corr()
     corr_data = corr[corr > cutoff]
@@ -309,83 +336,151 @@ def plot_univ_dists(df, cutoff):
     sns.distplot(df[df['popularity value.1'] < popularity_cutoff]['listeners value.2'])
     sns.distplot(df[df['popularity value.1'] > popularity_cutoff]['listeners value.2'])
     plt.show()
+
+def validation_plot(y_test, pred_test):
+    """
+    Parameters
+    ----------
+    y_test : validation set.
+    pred_test : prediction on test.
+
+    Returns
+    -------
+    None.
+
+    """
+    fig, ax = plt.subplots()
+    ax.scatter(y_test, pred_test, color="b")
+    # ax.plot([y_test.min(),y_test.max()],[y_test.min(),y_test.max()],'k--',lw=4)
+    ax.set_xlabel("preds")
+    ax.set_ylabel("y_test")
+    ax.set_title("validate on pred")
+    plt.show()
+
+
+# choose cutoff, sample popular data, randomly sample unpopular data, and combine the dfs
+def split_sample_combine(df, cutoff, col='fx popularity', rand=None):
+    # split out popular rows above the popularity cutoff
+    split_pop_df = df[df[col] >= cutoff].copy()
+
+    # get the leftover rows, the 'unpopular' songs
+    df_leftover = df[df[col] < cutoff].copy()
+
+    # what % of the original data do we now have?
+    ratio = split_pop_df.shape[0] / df.shape[0]
     
+    # what % of leftover rows do we need?
+    ratio_leftover = split_pop_df.shape[0] / df_leftover.shape[0]
+
+    # get the exact # of unpopular rows needed, using a random sampler
+    unpop_df_leftover, unpop_df_to_add = train_test_split(df_leftover, \
+                                                          test_size=ratio_leftover, \
+                                                          random_state = rand)
+    
+    # combine the dataframes to get total rows = split_pop_df * 2
+    # ssc stands for "split_sample_combine"
+    ssc_df = split_pop_df.append(unpop_df_to_add).reset_index(drop=True)
+
+    # shuffle the df
+    ssc_df = ssc_df.sample(frac=1, random_state=rand).reset_index(drop=True)
+    
+    # add columns relating to popularity
+    ssc_df['pop_frac'] = ssc_df[col] / 100
+    ssc_df['pop_cat'] = np.where(ssc_df[col] > cutoff, "Popular", "Not_Popular")
+    ssc_df['pop_bin'] = np.where(ssc_df[col] > cutoff, 1, 0)
+    return ssc_df
+
 # initial linear regression function, and plots
-def linear_regression_initial(df):
+def linear_regression_initial(df,Y):
     df = df.copy()
-    for col in df.columns:
-        X_cols = df.columns.drop(col)
+    X_cols = df.columns.drop([Y,'followers_to_listeners_ratio value.3'])
+
+    y_col = [Y]
+
+    X = df[X_cols]
+    y = df[y_col]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+
+    X_train = sm.add_constant(X_train)
+    # Instantiate OLS model, fit, predict, get errors
+    model = sm.OLS(y_train, X_train)
+    results = model.fit()
+    fitted_vals_train = results.predict(X_train)
+    stu_resid = results.resid_pearson
+    residuals = results.resid
+    y_vals = pd.DataFrame({'residuals':residuals, 'fitted_vals':fitted_vals_train, \
+                            'stu_resid': stu_resid})
+
+    # Print the results
+    print(results.summary())
+
+    # QQ Plot
+    fig, ax = plt.subplots(figsize=(8, 5))
+    plt.title(f"QQ Plot-{Y} Initial Linear Regression")
+    fig = sm.qqplot(stu_resid, line='45', fit=True, ax=ax)
+    plt.show()
+
+    # validate pred
+    validation_plot(y_train, fitted_vals_train)
+
+    # Residuals Plot
+    y_vals.plot(kind='scatter', x='fitted_vals', y='stu_resid')
+    plt.title(f"{Y} regression")
+    plt.show()
+    return y_vals
+
+def lin_reg_forcast(df,Y,PARAMETERS = {
+        'max_depth':20,
+        'min_child_weight': 5,
+        'eta':.1,
+        'subsample': .7,
+        'colsample_bytree': .7,
+        'nthread':-1,
+        'objective':'reg:squarederror',
+        'eval_metric':'rmse'
+    }):
+    df = df.copy()
+    X_cols = df.columns.drop(Y)
+
+    y_col = [Y]
+
+    X = df[X_cols]
+    y = df[y_col]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
     
-        y_col = [col]
-    
-        X = df[X_cols]
-        y = df[y_col]
-    
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25)
-    
-        X_train = sm.add_constant(X_train)
-    
-        # Instantiate OLS model, fit, predict, get errors
-        model = sm.OLS(y_train, X_train)
-        results = model.fit()
-        fitted_vals = results.predict(X_train)
-        stu_resid = results.resid_pearson
-        residuals = results.resid
-        y_vals = pd.DataFrame({'residuals':residuals, 'fitted_vals':fitted_vals, \
-                               'stu_resid': stu_resid})
-    
-        # Print the results
-        print(results.summary())
-    
-        # QQ Plot
-        fig, ax = plt.subplots(figsize=(8, 5))
-        plt.title(f"QQ Plot-{col} Initial Linear Regression")
-        fig = sm.qqplot(stu_resid, line='45', fit=True, ax=ax)
-        plt.show()
-    
-        # Residuals Plot
-        y_vals.plot(kind='scatter', x='fitted_vals', y='stu_resid')
-        plt.title(f"{col} regression")
-        plt.show()
-        
+    dtrain = xgb.DMatrix(X_train, y_train,nthread=-1)
+    dtest = xgb.DMatrix(X_test, y_test,nthread=-1)
+
+    bst = xgb.train(
+        params=PARAMETERS,
+        dtrain=dtrain,
+        # num_boost_round=999,
+        # evals=[(dtest,"Test")],
+        # early_stopping_rounds=10,
+        )
+    pred_test = bst.predict(dtrain)
+    pred_leaf = bst.predict(dtrain,pred_leaf=True)
+    print(pred_leaf)
+    return pred_test
+
 # Create a basic logistic regression
-def basic_logistic_regression(df, cutoff=55, rand=0, sig_only=False):
+def basic_logistic_regression(df, cutoff,col='pop_bin', rand=0, sig_only=False):
     df = df.copy()
-
-    if sig_only == True:
-        X, y = return_X_y_logistic_sig_only(split_sample_combine(df, cutoff=cutoff, rand=rand))
-        X = standardize_X_sig_only(X)
-
-    else:
-        X, y = return_X_y_logistic(split_sample_combine(df, cutoff=80, rand=rand))
-        X = standardize_X(X)
-
+    X, y = return_X_y_logistic(split_sample_combine(df, cutoff,col, rand=rand))
+    X = standardize_X(X)
     X_const = add_constant(X, prepend=True)
-
-    logit_model = Logit(y, X_const).fit()
+    print("X_const\n",X_const)
+    print("Y\n",y)
+    
+    logit_model = Logit(y, X_const).fit(solver='lbfgs',skip_hessian=True,max_iter=20000)
     
     print(logit_model.summary())
 
     return logit_model
 
-# various data standardization and X/y split functions for logisitic reression
-# based on the columns you want to standardize and return
-def return_X_y_logistic(df):
-    df = df.copy()
-
-    # define columns to use for each
-    X_cols = df.columns
-
-    # use 1's and 0's for logistic
-    y_col = df.columns[0]
-
-    # split into X and y
-    X = df[X_cols]
-    y = df[y_col]
-
-    return X, y
-
-def logistic_regression_with_kfold(df, cutoff=55, rand=0, sig_only=False):
+def logistic_regression_with_kfold(df, cutoff=2.682048, rand=0, sig_only=False):
     df = df.copy()
     
     if sig_only == True:
@@ -432,6 +527,38 @@ def logistic_regression_with_kfold(df, cutoff=55, rand=0, sig_only=False):
     print(f"precision: {np.average(precisions)}")
     print(f"recall: {np.average(recalls)}")
 
+# various data standardization and X/y split functions for logisitic reression
+# based on the columns you want to standardize and return
+def return_X_y_logistic(df):
+    df = df.copy()
+
+    # define columns to use for each
+    X_cols = ['fx followers','fx listeners','fx ratio','pop_frac']
+
+    # use 1's and 0's for logistic
+    y_col = 'pop_bin'
+
+    # split into X and y
+    X = df[X_cols]
+    y = df[y_col]
+
+    return X, y
+
+def standardize_X(X):  
+    X = X.copy()
+    
+    # standardize only columns not between 0 and 1
+    for col in ['fx followers','fx listeners','fx ratio','fx popularity','pop_frac']:
+        new_col_name = col + "_std"
+        X[new_col_name] = (X[col] - X[col].mean()) / X[col].std()
+        
+    X_cols = ['fx followers_std','fx popularity_std','fx listeners_std','fx ratio_std','pop_frac_std']
+
+    # return the std columns in a dataframe
+    X = X[X_cols]
+    
+    return X
+
 
     
 if __name__ == "__main__":
@@ -447,15 +574,18 @@ if __name__ == "__main__":
     step 1 <- visual representation of what the platform looks like (basic sustainable platform)
       - barebones UI
       - with plot metrics
+      
     -heursticals timeseries giving it a weights average and aggregate
       (proof of concept first)<-small easy project easy money
-    -only use first row of each artist because lack of prevalence
-    - diff var / value
+    - diff var / value mean
     - pair xy regressor    
-    * engineered some features, standardized, made use of more relevant metrics for time series
-    * can incorporate other artist diff columns
-    * reference previous stock feature engineering project
     * continue with logistic regression
+    * PCA,clustering , mark one of the clusters as popular if in it.
+    * do principle component regression
+    * rich regression/elastic net
+    * try unsupervised
+    * fix groupby timeserie
+    * google data studio
     """
     # data clean
     df = load_data()  
@@ -464,42 +594,43 @@ if __name__ == "__main__":
     print(f"duplicate columns: {duplicated}\n")
     df = rename_columns(df)
     df.fillna(df.mean(),inplace=True)
-    grp,grp_std,grp_norm,grp_stdnorm = group_time(df)
+    grp,cr,cr_std,cr_norm,cr_stdnorm = group_time(df)
+    
+    # unique artist difference df
+    artist_diff = artist_diff_metric(df)
     
     # prelim insights
-    statsgrp = get_df_info(grp)
-    # statsgrp_std = get_df_info(grp_std)
-    # statsgrp_norm = get_df_info(grp_norm)
-    # statsgrp_stdnorm = get_df_info(grp_stdnorm)
-    get_stats(grp)
-    print()
+    get_df_info(artist_diff)
+    get_df_info(cr_std)
+    get_df_info(cr_norm)
+    get_df_info(cr_stdnorm)
+    get_df_info(grp)
+    get_df_info(artist_diff)
+    plot_heatmap(grp)
     corr_list,corr_data = calc_correlations(grp)
     plot_index = corr_list[corr_list > 0.5].index
     for plot in plot_index:
-        scatter_plot(grp,plot[0],plot[1])
-    describe = describe_cols(grp,10)
-    print()
-    plot_heatmap(grp)
+        scatter_plot(artist_diff,plot[0],plot[1])
+    describe_cols(grp,10)
     plot_pop_dist(grp)
     undersample_plot(grp)
     plot_univ_dists(grp, 70)
     
     # Data prep
-    au_corr = get_top_abs_correlations(grp, 50)
+    au_corr = get_top_abs_correlations(grp, 25)
     train_cols = np.unique((np.asarray([(index[0],index[1]) for index in au_corr.index])).flatten())
     dtrain = grp[train_cols]
     dtrain.fillna(dtrain.mean(),inplace=True)
     plot_heatmap(dtrain)
-    plot_pop_dist(dtrain)
-    undersample_plot(dtrain)
-    plot_univ_dists(dtrain, 70)
     
     # regression
-    linear_regression_initial(dtrain)
-    # basic_logistic_regression(dtrain)
+    fitted_pop = linear_regression_initial(dtrain,Y='popularity value.1')
+    artist_scores = stats.zscore(fitted_pop['fitted_vals'])
     
-    
-    
+    get_df_info(fitted_pop)
+    MM = Multivariable_Matrix(pd.DataFrame(stats.zscore(fitted_pop),columns=fitted_pop.columns),fitted_pop,'fitted_vals')
+    pred_over90 = lin_reg_forcast(MM,Y='shift 0')
+    # basic_logistic_regression(pd.DataFrame(stats.zscore(dtrain),columns=dtrain.columns),cutoff=np.mean(stats.zscore(dtrain))*2)
     
     
     
