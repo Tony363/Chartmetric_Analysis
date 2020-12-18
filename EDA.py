@@ -40,6 +40,7 @@ def set_view_options(max_cols=50, max_rows=50, max_colwidth=9, dis_width=250):
     pd.options.display.max_rows = max_rows
     pd.set_option('max_colwidth', max_colwidth)
     pd.options.display.width = dis_width
+    pd.option_context('mode.use_inf_as_na', True)
     
 def rename_columns(df):
     subidx = [df.columns.get_loc(col) for col in df.columns if "Subject" in col] 
@@ -83,7 +84,6 @@ def get_df_info(df):
     statsdf = pd.concat(statsdf,axis=0,ignore_index=True)
     statsdf.set_index([pd.Index(subject_col)],inplace=True)
     return statsdf
-    # print(df.agg({col:['min','max','median','skew'] for idx,col in enumerate(df.columns) if idx % 7 != 0}))
 
 # calculate and print more stats from the df
 def get_stats(df):
@@ -97,26 +97,33 @@ def get_stats(df):
     print(f"There are {df[df['popularity value.1'] > 55]['popularity value.1'].count()} songs with a popularity score > 55")
     print(f"There are {df[df['popularity value.1'] > 75]['popularity value.1'].count()} songs with a popularity score > 75")
     print(f"Only {(df[df['popularity value.1'] > 80]['popularity value.1'].count() / df.shape[0])*100:.2f} % of artists have a popularity score > 80")
-    
+
+def scale_grp(df,pct,time):
+    pct.replace([np.inf, -np.inf], np.nan,inplace=True)
+    df_std = pd.DataFrame(StandardScaler().fit_transform(pct),columns=['fx followers','fx popularity','fx listeners','fx ratio'])
+    df_std['time series'] = time
+    df_std.set_index('time series',inplace=True)
+    df_norm = pd.DataFrame(MinMaxScaler().fit_transform(pct),columns=['fx followers','fx popularity','fx listeners','fx ratio'])
+    df_norm['time series'] = time
+    df_norm.set_index('time series',inplace=True)
+    df_std_norm = pd.DataFrame(MinMaxScaler().fit_transform(df_std),columns=['fx followers','fx popularity','fx listeners','fx ratio'])
+    return df.drop(['fx followers','fx popularity','fx listeners','fx ratio'],axis=1),df.drop(['followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3'],axis=1),df_std,df_norm,df_std_norm
+
 def group_time(df):
     timeidx = [df.columns.get_loc(col) for col in df.columns if "timestp" in col] 
     time = df.iloc[:,timeidx]
     time = time.reset_index().drop('Chartmetric_ID',axis=1).loc[:,'followers timestp']
-    df = df.drop(df.columns[timeidx[1:]],axis=1).reset_index().groupby(['followers timestp',])[['Chartmetric_ID','followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3']].first()
-    df.fillna(df.mean(),inplace=True)
-    print(df.describe())
+    df = df.drop(df.columns[timeidx[1:]],axis=1)
+    df.reset_index(inplace=True)
+    df.fillna(method="ffill",inplace=True)
+    df = df.groupby(['Chartmetric_ID','followers timestp'])[['followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3']].first()
     df['fx followers'] = df['followers value'].pct_change()
     df['fx popularity'] = df['popularity value.1'].pct_change()
     df['fx listeners'] = df['listeners value.2'].pct_change()
     df['fx ratio'] = df['followers_to_listeners_ratio value.3'].pct_change()
-    df_std = pd.DataFrame(StandardScaler().fit_transform(df.drop(['Chartmetric_ID','followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3'],axis=1)),columns=['fx followers','fx popularity','fx listeners','fx ratio'])
-    df_std['time series'] = time
-    df_std.set_index('time series',inplace=True)
-    df_norm = pd.DataFrame(MinMaxScaler().fit_transform(df.drop(['Chartmetric_ID','followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3'],axis=1)),columns=['fx followers','fx popularity','fx listeners','fx ratio'])
-    df_norm['time series'] = time
-    df_norm.set_index('time series',inplace=True)
-    df_std_norm = pd.DataFrame(MinMaxScaler().fit_transform(df_std),columns=['fx followers','fx popularity','fx listeners','fx ratio'])
-    return df.drop(['fx followers','fx popularity','fx listeners','fx ratio'],axis=1),df.drop(['Chartmetric_ID','followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3'],axis=1),df_std,df_norm,df_std_norm
+    pct = df.fillna(method="ffill").drop(['followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3'],axis=1)
+    return scale_grp(df,pct,time)
+   
 
 def artist_diff_metric(df):
     timeidx = [df.columns.get_loc(col) for col in df.columns if "timestp" in col] 
@@ -393,7 +400,7 @@ def split_sample_combine(df, cutoff, col='fx popularity', rand=None):
 # initial linear regression function, and plots
 def linear_regression_initial(df,Y):
     df = df.copy()
-    X_cols = df.columns.drop([Y,'followers_to_listeners_ratio value.3'])
+    X_cols = df.columns.drop(Y)
 
     y_col = [Y]
 
@@ -593,7 +600,6 @@ if __name__ == "__main__":
     duplicated = True in df.columns.duplicated()
     print(f"duplicate columns: {duplicated}\n")
     df = rename_columns(df)
-    df.fillna(df.mean(),inplace=True)
     grp,cr,cr_std,cr_norm,cr_stdnorm = group_time(df)
     
     # unique artist difference df
