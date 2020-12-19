@@ -116,12 +116,12 @@ def group_time(df):
     df = df.drop(df.columns[timeidx[1:]],axis=1)
     df.reset_index(inplace=True)
     df.fillna(method="ffill",inplace=True)
-    df = df.groupby(['Chartmetric_ID','followers timestp'])[['followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3']].first()
+    df = df.groupby(['followers timestp'])[['Chartmetric_ID','followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3']].first()
     df['fx followers'] = df['followers value'].pct_change()
     df['fx popularity'] = df['popularity value.1'].pct_change()
     df['fx listeners'] = df['listeners value.2'].pct_change()
     df['fx ratio'] = df['followers_to_listeners_ratio value.3'].pct_change()
-    pct = df.fillna(method="ffill").drop(['followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3'],axis=1)
+    pct = df.fillna(method="ffill").drop(['Chartmetric_ID','followers value','popularity value.1','listeners value.2','followers_to_listeners_ratio value.3'],axis=1)
     return scale_grp(df,pct,time)
    
 
@@ -567,6 +567,9 @@ def standardize_X(X):
     return X
 
 
+
+
+
     
 if __name__ == "__main__":
     """
@@ -626,10 +629,10 @@ if __name__ == "__main__":
     au_corr = get_top_abs_correlations(grp, 25)
     train_cols = np.unique((np.asarray([(index[0],index[1]) for index in au_corr.index])).flatten())
     dtrain = grp[train_cols]
-    dtrain.fillna(dtrain.mean(),inplace=True)
+    dtrain.fillna(method="ffill",inplace=True)
     plot_heatmap(dtrain)
     
-    # regression
+    # # regression
     fitted_pop = linear_regression_initial(dtrain,Y='popularity value.1')
     artist_scores = stats.zscore(fitted_pop['fitted_vals'])
     
